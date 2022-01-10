@@ -5,9 +5,33 @@
 #include "tokenizer.h"
 #include "pegen.h"
 #include "string_parser.h"
+//#include "pegen_errors.c"
 #include <string.h>
 
 //// STRING HANDLING FUNCTIONS ////
+
+static PyObject *
+get_error_line_from_tokenizer_buffers(Parser *p, Py_ssize_t lineno)
+{
+    /* If the file descriptor is interactive, the source lines of the current
+     * (multi-line) statement are stored in p->tok->interactive_src_start.
+     * If not, we're parsing from a string, which means that the whole source
+     * is stored in p->tok->str. */
+    assert((p->tok->fp == NULL && p->tok->str != NULL) || p->tok->fp == stdin);
+
+    char *cur_line = p->tok->fp_interactive ? p->tok->interactive_src_start : p->tok->str;
+    assert(cur_line != NULL);
+
+    for (int i = 0; i < lineno - 1; i++) {
+        cur_line = strchr(cur_line, '\n') + 1;
+    }
+
+    char *next_newline;
+    if ((next_newline = strchr(cur_line, '\n')) == NULL) { // This is the last line
+        next_newline = cur_line + strlen(cur_line);
+    }
+    return PyUnicode_DecodeUTF8(cur_line, next_newline - cur_line, "replace");
+}
 
 static int
 warn_invalid_escape_sequence(Parser *p, unsigned char first_invalid_escape_char, Token *t)
@@ -501,6 +525,69 @@ done:
     return result;
 }
 
+
+/* Structure and function to find correct location of carets for opening/closing
+
+f-string parens error */
+
+  typedef struct {
+                        int lineno, col_offset, end_lineno, end_col_offset;
+                        bool valid;
+                    } a_struct;
+
+a_struct locationOffsetFind(Parser *p,const char **str)
+{
+    a_struct a;
+    int offset_check=(p->tokens[p->fill-1]->col_offset-strlen(*str));
+    if(offset_check>=0)
+    {
+        
+        
+        long unsigned int revIndex=0, trailing_spaces=0, char_offset_from_end=0;
+
+        const char *strErrorLine="";
+
+        // To get the exact error line with the white spaces or any other content afterwards
+        if (p->tok->fp_interactive) {
+            strErrorLine = PyUnicode_AsUTF8(get_error_line_from_tokenizer_buffers(p, p->tokens[p->fill-1]->lineno));
+        }
+        else if (p->start_rule == Py_file_input) {
+            strErrorLine = PyUnicode_AsUTF8(_PyErr_ProgramDecodedTextObject(p->tok->filename,
+                                                        (int) p->tokens[p->fill-1]->lineno, p->tok->encoding));
+        }
+
+            /*The below while loop finds the number of trailing spaces after the f-string. If there are any other expression 
+            or literal after that revIndex takes care of it while counting backwards only the whitespaces are counted so that
+            suitable offset can be calculated*/
+            
+        while((strErrorLine[strlen(strErrorLine)-revIndex-2])!='"'  && revIndex<strlen(strErrorLine))
+        {
+            
+            if((strErrorLine[strlen(strErrorLine)-revIndex-2])==' ')
+            trailing_spaces++;
+            if((strErrorLine[strlen(strErrorLine)-revIndex-2])!='"' && (strErrorLine[strlen(strErrorLine)-revIndex-2])!=' ')
+            trailing_spaces=0;
+             
+            revIndex++;
+        }
+        char_offset_from_end=strlen(*str)+trailing_spaces;
+        a.col_offset=p->tokens[p->fill-1]->col_offset-char_offset_from_end;
+        a.lineno=p->tokens[p->fill-1]->lineno;
+        a.end_col_offset=a.col_offset;
+        a.end_lineno=a.lineno;
+
+        a.valid=true;
+    }
+    else
+    {
+        a.valid=false;
+    }
+
+    return a;
+
+}
+
+
 /* Forward declaration because parsing is recursive. */
 static expr_ty
 fstring_parse(Parser *p, const char **str, const char *end, int raw, int recurse_lvl,
@@ -666,22 +753,10 @@ fstring_find_expr(Parser *p, const char **str, const char *end, int raw, int rec
             break;
         } else if (ch == ']' || ch == '}' || ch == ')') {
             if (!nested_depth) {
-                
 
-                int offset_check=(p->tokens[p->fill-1]->col_offset-strlen(*str))-1;
-                if(offset_check>=0)
-                {
-                    typedef struct {
-                        int lineno, col_offset, end_lineno, end_col_offset;
-                    } a_struct;
-                    a_struct a;
-                    a.col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str)-1;
-                    a.lineno=p->tokens[p->fill-1]->lineno;
-                    a.end_col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str)-1;
-                    a.end_lineno=p->tokens[p->fill-1]->lineno;
-
+                a_struct a=locationOffsetFind(p,str);
+                if(a.valid)
                     RAISE_SYNTAX_ERROR_KNOWN_LOCATION(&a,"f-string: unmatched '%c'", ch);
-                }
                 else
                     RAISE_SYNTAX_ERROR("f-string: unmatched '%c'", ch);
                 goto error;
@@ -693,22 +768,22 @@ fstring_find_expr(Parser *p, const char **str, const char *end, int raw, int rec
                   (opening == '{' && ch == '}')))
             {
 
-                int offset_check=(p->tokens[p->fill-1]->col_offset-strlen(*str));
-                if(offset_check>=0)
-                {
-                    typedef struct {
-                        int lineno, col_offset, end_lineno, end_col_offset;
-                    } a_struct;
-                    a_struct a;
-                    a.col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str);
-                    a.lineno=p->tokens[p->fill-1]->lineno;
-                    a.end_col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str);
-                    a.end_lineno=p->tokens[p->fill-1]->lineno;
-
+                // int offset_check=(p->tokens[p->fill-1]->col_offset-strlen(*str));
+                // if(offset_check>=0)
+                // {
+                //     typedef struct {
+                //         int lineno, col_offset, end_lineno, end_col_offset;
+                //     } a_struct;
+                //     a_struct a;
+                //     a.col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str);
+                //     a.lineno=p->tokens[p->fill-1]->lineno;
+                //     a.end_col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str);
+                //     a.end_lineno=p->tokens[p->fill-1]->lineno;
+                a_struct a=locationOffsetFind(p,str);
+                if(a.valid)
                     RAISE_SYNTAX_ERROR_KNOWN_LOCATION(&a,  "f-string: closing parenthesis '%c' "
                                                             "does not match opening parenthesis '%c'",
                                                             ch, opening);
-                }
                 else
                     RAISE_SYNTAX_ERROR(
                             "f-string: closing parenthesis '%c' "
@@ -731,20 +806,20 @@ fstring_find_expr(Parser *p, const char **str, const char *end, int raw, int rec
     }
     if (nested_depth) {
         int opening = (unsigned char)parenstack[nested_depth - 1];
-        int offset_check=(p->tokens[p->fill-1]->col_offset-strlen(*str))-1;
-        if(offset_check>=0)
-        {
-            typedef struct {
-                int lineno, col_offset, end_lineno, end_col_offset;
-            } a_struct;
-            a_struct a;
-            a.col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str)-1;
-            a.lineno=p->tokens[p->fill-1]->lineno;
-            a.end_col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str)-1;
-            a.end_lineno=p->tokens[p->fill-1]->lineno;
-
+        // int offset_check=(p->tokens[p->fill-1]->col_offset-strlen(*str))-1;
+        // if(offset_check>=0)
+        // {
+        //     typedef struct {
+        //         int lineno, col_offset, end_lineno, end_col_offset;
+        //     } a_struct;
+        //     a_struct a;
+        //     a.col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str)-1;
+        //     a.lineno=p->tokens[p->fill-1]->lineno;
+        //     a.end_col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str)-1;
+        //     a.end_lineno=p->tokens[p->fill-1]->lineno;
+        a_struct a=locationOffsetFind(p,str);
+        if(a.valid)
             RAISE_SYNTAX_ERROR_KNOWN_LOCATION(&a,"f-string: unmatched '%c'", opening);
-        }
         else
             RAISE_SYNTAX_ERROR("f-string: unmatched '%c'", opening);
         goto error;

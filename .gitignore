@@ -148,3 +148,4 @@ Python/frozen_modules/MANIFEST
 /python
 !/Python/
 string_close_test.py
+turtle_test.py
