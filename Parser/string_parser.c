@@ -771,17 +771,6 @@ fstring_find_expr(Parser *p, const char **str, const char *end, int raw, int rec
                   (opening == '{' && ch == '}')))
             {
 
-                // int offset_check=(p->tokens[p->fill-1]->col_offset-strlen(*str));
-                // if(offset_check>=0)
-                // {
-                //     typedef struct {
-                //         int lineno, col_offset, end_lineno, end_col_offset;
-                //     } a_struct;
-                //     a_struct a;
-                //     a.col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str);
-                //     a.lineno=p->tokens[p->fill-1]->lineno;
-                //     a.end_col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str);
-                //     a.end_lineno=p->tokens[p->fill-1]->lineno;
                 a_struct a=locationOffsetFind(p,str);
                 if(a.valid)
                     RAISE_SYNTAX_ERROR_KNOWN_LOCATION(&a,  "f-string: closing parenthesis '%c' "
@@ -809,17 +798,7 @@ fstring_find_expr(Parser *p, const char **str, const char *end, int raw, int rec
     }
     if (nested_depth) {
         int opening = (unsigned char)parenstack[nested_depth - 1];
-        // int offset_check=(p->tokens[p->fill-1]->col_offset-strlen(*str))-1;
-        // if(offset_check>=0)
-        // {
-        //     typedef struct {
-        //         int lineno, col_offset, end_lineno, end_col_offset;
-        //     } a_struct;
-        //     a_struct a;
-        //     a.col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str)-1;
-        //     a.lineno=p->tokens[p->fill-1]->lineno;
-        //     a.end_col_offset=p->tokens[p->fill-1]->col_offset-strlen(*str)-1;
-        //     a.end_lineno=p->tokens[p->fill-1]->lineno;
+
         a_struct a=locationOffsetFind(p,str);
         if(a.valid)
             RAISE_SYNTAX_ERROR_KNOWN_LOCATION(&a,"f-string: unmatched '%c'", opening);
