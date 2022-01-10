@@ -1,11 +1,8 @@
 #include <stdbool.h>
-
 #include <Python.h>
-
 #include "tokenizer.h"
 #include "pegen.h"
 #include "string_parser.h"
-//#include "pegen_errors.c"
 #include <string.h>
 
 //// STRING HANDLING FUNCTIONS ////
